@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmployees, useMe } from "@/hooks/useMe";
-import { money } from "@/lib/crm";
+import { money, monthLabel, monthRange } from "@/lib/crm";
+import { useFilters } from "@/components/filters";
+import { useSort, SortHead } from "@/components/sortable-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +29,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -40,7 +41,7 @@ export const Route = createFileRoute("/_authenticated/payments")({
       {
         name: "description",
         content:
-          "Модуль оплат: сводные карточки, подробная таблица платежей и ручное добавление новых оплат.",
+          "Модуль оплат: сводные карточки, сортируемая таблица платежей и ручное добавление новых оплат.",
       },
       { property: "og:title", content: "Модуль оплат" },
       {
@@ -85,8 +86,10 @@ function PaymentsPage() {
   const { data: payments = [], isLoading } = usePayments();
   const { data: employees = [] } = useEmployees();
   const { data: me } = useMe();
-  const [manager, setManager] = useState("all");
+  const f = useFilters();
   const [search, setSearch] = useState("");
+  const [scope, setScope] = useState<"month" | "all">("month");
+  const { from, to } = monthRange(f.period);
 
   const nameOf = (id: string | null) =>
     employees.find((e) => e.id === id)?.full_name ?? "—";
@@ -95,11 +98,27 @@ function PaymentsPage() {
     () =>
       payments.filter(
         (p) =>
-          (manager === "all" || p.manager_id === manager) &&
+          f.match(p) &&
+          (scope === "all" || (p.payment_date >= from && p.payment_date < to)) &&
           (search.trim() === "" ||
             p.client_name.toLowerCase().includes(search.toLowerCase())),
       ),
-    [payments, manager, search],
+    [payments, f, scope, from, to, search],
+  );
+
+  const accessor = (p: Payment, key: string): unknown => {
+    if (key === "manager") return nameOf(p.manager_id);
+    if (key === "revenue") return Number(p.revenue);
+    if (key === "net_profit") return Number(p.net_profit);
+    if (key === "receivable") return Number(p.receivable ?? 0);
+    if (key === "order_no") return Number(p.order_no ?? 0);
+    return (p as unknown as Record<string, unknown>)[key];
+  };
+
+  const { sorted, sort, toggle } = useSort(
+    rows,
+    { key: "payment_date", dir: "desc" },
+    accessor,
   );
 
   const revenue = rows.reduce((a, p) => a + Number(p.revenue), 0);
@@ -110,70 +129,126 @@ function PaymentsPage() {
   const cards = [
     { label: "Выручка", value: money(revenue), tone: "text-foreground" },
     { label: "Чистая прибыль", value: money(net), tone: "text-success" },
-    { label: "Дебиторка", value: money(receivable), tone: "text-warning-foreground" },
+    {
+      label: "Дебиторка",
+      value: money(receivable),
+      tone: "text-warning-foreground",
+    },
     { label: "Средний чек", value: money(avg), tone: "text-foreground" },
     { label: "Оплат", value: String(rows.length), tone: "text-foreground" },
   ];
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Оплаты</h1>
           <p className="text-sm text-muted-foreground">
-            Все оплаченные сделки{me?.isAdmin ? " отдела" : ""} с деталями по каждому клиенту
+            {scope === "month"
+              ? monthLabel(f.period)
+              : "Все оплаты за всё время"}
+            {me?.isAdmin ? " · весь отдел" : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-border p-0.5">
+            <Button
+              size="sm"
+              variant={scope === "month" ? "secondary" : "ghost"}
+              onClick={() => setScope("month")}
+            >
+              Месяц
+            </Button>
+            <Button
+              size="sm"
+              variant={scope === "all" ? "secondary" : "ghost"}
+              onClick={() => setScope("all")}
+            >
+              Все
+            </Button>
+          </div>
           <Input
             placeholder="Поиск клиента…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-52"
+            className="w-48"
           />
-          {me?.isAdmin && (
-            <Select value={manager} onValueChange={setManager}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все менеджеры</SelectItem>
-                {employees.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <NewPaymentDialog />
         </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid shrink-0 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         {cards.map((c) => (
-          <div key={c.label} className="surface p-4">
+          <div key={c.label} className="surface p-3">
             <p className="text-xs text-muted-foreground">{c.label}</p>
-            <p className={`num mt-1 text-xl font-bold ${c.tone}`}>{c.value}</p>
+            <p className={`num mt-1 text-lg font-bold ${c.tone}`}>{c.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="surface overflow-x-auto">
+      <div className="surface min-h-0 flex-1 overflow-auto">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
-              <TableHead>№</TableHead>
-              <TableHead>Клиент</TableHead>
-              <TableHead>Контакт</TableHead>
-              <TableHead>Тариф</TableHead>
-              <TableHead className="text-right">Выручка</TableHead>
-              <TableHead className="text-right">Чистыми</TableHead>
-              <TableHead className="text-right">Дебиторка</TableHead>
-              <TableHead>Способ</TableHead>
-              <TableHead>Дата</TableHead>
-              <TableHead>Менеджер</TableHead>
-              <TableHead>График</TableHead>
+              <SortHead label="№" sortKey="order_no" sort={sort} toggle={toggle} />
+              <SortHead
+                label="Клиент"
+                sortKey="client_name"
+                sort={sort}
+                toggle={toggle}
+              />
+              <SortHead
+                label="Контакт"
+                sortKey="contact"
+                sort={sort}
+                toggle={toggle}
+              />
+              <SortHead label="Тариф" sortKey="tariff" sort={sort} toggle={toggle} />
+              <SortHead
+                label="Выручка"
+                sortKey="revenue"
+                sort={sort}
+                toggle={toggle}
+                align="right"
+              />
+              <SortHead
+                label="Чистыми"
+                sortKey="net_profit"
+                sort={sort}
+                toggle={toggle}
+                align="right"
+              />
+              <SortHead
+                label="Дебиторка"
+                sortKey="receivable"
+                sort={sort}
+                toggle={toggle}
+                align="right"
+              />
+              <SortHead
+                label="Способ"
+                sortKey="payment_method"
+                sort={sort}
+                toggle={toggle}
+              />
+              <SortHead
+                label="Дата"
+                sortKey="payment_date"
+                sort={sort}
+                toggle={toggle}
+              />
+              <SortHead
+                label="Менеджер"
+                sortKey="manager"
+                sort={sort}
+                toggle={toggle}
+              />
+              <SortHead
+                label="График"
+                sortKey="schedule_note"
+                sort={sort}
+                toggle={toggle}
+              />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -182,7 +257,14 @@ function PaymentsPage() {
                 <TableCell colSpan={11}>Загружаем…</TableCell>
               </TableRow>
             )}
-            {rows.map((p) => (
+            {!isLoading && sorted.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={11} className="text-muted-foreground">
+                  За выбранный период и фильтры оплат нет.
+                </TableCell>
+              </TableRow>
+            )}
+            {sorted.map((p) => (
               <TableRow key={p.id}>
                 <TableCell className="num">{p.order_no ?? "—"}</TableCell>
                 <TableCell className="font-medium">{p.client_name}</TableCell>
@@ -254,6 +336,7 @@ function NewPaymentDialog() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["filter-options"] });
       toast.success("Оплата добавлена");
       setOpen(false);
     },

@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      employee_terms: {
+        Row: {
+          base_rate: number
+          created_at: string
+          employee_id: string
+          id: string
+          min_coef: number
+          period: string
+          salary: number
+          target_coef: number
+        }
+        Insert: {
+          base_rate?: number
+          created_at?: string
+          employee_id: string
+          id?: string
+          min_coef?: number
+          period: string
+          salary?: number
+          target_coef?: number
+        }
+        Update: {
+          base_rate?: number
+          created_at?: string
+          employee_id?: string
+          id?: string
+          min_coef?: number
+          period?: string
+          salary?: number
+          target_coef?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_terms_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           base_rate: number
