@@ -80,6 +80,30 @@ export function monthRange(period: string) {
   return { from: period, to: end.toISOString().slice(0, 10) };
 }
 
+export type CompTerms = {
+  salary: number;
+  base_rate: number;
+  min_coef: number;
+  target_coef: number;
+};
+
+/** Условия сотрудника на конкретный месяц: из истории, иначе текущие. */
+export function termsFor(
+  employee: CompTerms & { id: string },
+  terms: (CompTerms & { employee_id: string; period: string })[],
+  period: string,
+): CompTerms {
+  const t = terms.find(
+    (x) => x.employee_id === employee.id && x.period === period,
+  );
+  return {
+    salary: Number((t ?? employee).salary),
+    base_rate: Number((t ?? employee).base_rate),
+    min_coef: Number((t ?? employee).min_coef),
+    target_coef: Number((t ?? employee).target_coef),
+  };
+}
+
 export type PayrollInput = {
   salary: number;
   baseRate: number;

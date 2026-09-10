@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmployees, useMe } from "@/hooks/useMe";
 import { LEAD_STATUSES, money, statusMeta, type LeadStatus } from "@/lib/crm";
+import { useFilters } from "@/components/filters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,9 @@ import {
 import { Plus, Phone, Send, GripVertical } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/board")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    q: typeof s["q"] === "string" ? (s["q"] as string) : "",
+  }),
   head: () => ({
     meta: [
       { title: "Заявки — Kanban воронка продаж | Pulse CRM" },
@@ -55,6 +59,7 @@ export type Lead = {
   request: string | null;
   status: string;
   tariff: string | null;
+  payment_method: string | null;
   amount: number | null;
   net_amount: number | null;
   comment: string | null;
@@ -66,10 +71,13 @@ function BoardPage() {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const { data: employees = [] } = useEmployees();
-  const [manager, setManager] = useState("all");
-  const [search, setSearch] = useState("");
+  const f = useFilters();
+  const { q } = Route.useSearch();
+  const [search, setSearch] = useState(q);
   const [dragId, setDragId] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+
+  useEffect(() => setSearch(q), [q]);
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["leads"],
@@ -90,13 +98,13 @@ function BoardPage() {
     () =>
       leads.filter(
         (l) =>
-          (manager === "all" || l.manager_id === manager) &&
+          f.match(l) &&
           (search.trim() === "" ||
             (l.client_name + " " + (l.telegram ?? "") + " " + (l.phone ?? ""))
               .toLowerCase()
               .includes(search.toLowerCase())),
       ),
-    [leads, manager, search],
+    [leads, f, search],
   );
 
   const move = useMutation({
@@ -122,6 +130,7 @@ function BoardPage() {
             tariff: lead.tariff,
             revenue,
             net_profit: net,
+            payment_method: lead.payment_method,
             payment_date: new Date().toISOString().slice(0, 10),
             manager_id: lead.manager_id,
             lead_id: lead.id,
@@ -141,8 +150,8 @@ function BoardPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Заявки</h1>
           <p className="text-sm text-muted-foreground">
@@ -158,21 +167,6 @@ function BoardPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="w-52"
           />
-          {me?.isAdmin && (
-            <Select value={manager} onValueChange={setManager}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все менеджеры</SelectItem>
-                {employees.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <NewLeadDialog />
         </div>
       </header>
@@ -180,13 +174,10 @@ function BoardPage() {
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Загружаем заявки…</p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid min-h-0 flex-1 gap-3 overflow-x-auto md:grid-cols-2 xl:grid-cols-5">
           {LEAD_STATUSES.map((col) => {
             const items = filtered.filter((l) => l.status === col.key);
-            const sum = items.reduce(
-              (a, l) => a + Number(l.net_amount ?? 0),
-              0,
-            );
+            const sum = items.reduce((a, l) => a + Number(l.net_amount ?? 0), 0);
             return (
               <section
                 key={col.key}
@@ -202,68 +193,74 @@ function BoardPage() {
                   if (lead && lead.status !== col.key)
                     move.mutate({ lead, status: col.key });
                 }}
-                className={`flex min-h-40 flex-col gap-3 rounded-xl border p-3 transition-colors ${
+                className={`flex min-h-0 flex-col rounded-xl border transition-colors ${
                   over === col.key
                     ? "border-primary bg-primary/5"
                     : "border-border bg-muted/40"
                 }`}
               >
-                <div>
+                <div className="shrink-0 border-b border-border/60 p-3">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-semibold">{col.title}</h2>
                     <span className="num rounded-md bg-background px-2 py-0.5 text-xs font-semibold">
                       {items.length}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">{col.hint}</p>
                   {sum > 0 && (
                     <p className="num mt-1 text-xs font-semibold text-success">
                       {money(sum)}
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col gap-2">
-                  {items.map((lead) => (
-                    <article
-                      key={lead.id}
-                      draggable
-                      onDragStart={() => setDragId(lead.id)}
-                      onDragEnd={() => setDragId(null)}
-                      className="surface cursor-grab p-3 active:cursor-grabbing"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-sm font-semibold">
-                          {lead.client_name}
-                        </h3>
-                        <GripVertical className="size-4 shrink-0 text-muted-foreground" />
-                      </div>
-                      {lead.request && (
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {lead.request}
-                        </p>
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                        {lead.tariff && (
-                          <span className="rounded-md bg-secondary px-1.5 py-0.5">
-                            {lead.tariff}
-                          </span>
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+                  {items.map((lead) => {
+                    const highlight =
+                      q !== "" &&
+                      lead.client_name.toLowerCase() === q.toLowerCase();
+                    return (
+                      <article
+                        key={lead.id}
+                        draggable
+                        onDragStart={() => setDragId(lead.id)}
+                        onDragEnd={() => setDragId(null)}
+                        className={`surface cursor-grab p-3 active:cursor-grabbing ${
+                          highlight ? "ring-2 ring-primary" : ""
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-sm font-semibold">
+                            {lead.client_name}
+                          </h3>
+                          <GripVertical className="size-4 shrink-0 text-muted-foreground" />
+                        </div>
+                        {lead.request && (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {lead.request}
+                          </p>
                         )}
-                        {!!lead.amount && (
-                          <span className="num font-semibold">
-                            {money(lead.amount)}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                          {lead.tariff && (
+                            <span className="max-w-full truncate rounded-md bg-secondary px-1.5 py-0.5">
+                              {lead.tariff}
+                            </span>
+                          )}
+                          {!!lead.amount && (
+                            <span className="num font-semibold">
+                              {money(lead.amount)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>{nameOf(lead.manager_id)}</span>
+                          <span className="flex items-center gap-1.5">
+                            {lead.phone && <Phone className="size-3" />}
+                            {lead.telegram && <Send className="size-3" />}
+                            {lead.lead_date}
                           </span>
-                        )}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>{nameOf(lead.manager_id)}</span>
-                        <span className="flex items-center gap-1.5">
-                          {lead.phone && <Phone className="size-3" />}
-                          {lead.telegram && <Send className="size-3" />}
-                          {lead.lead_date}
-                        </span>
-                      </div>
-                    </article>
-                  ))}
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               </section>
             );
@@ -342,9 +339,7 @@ function NewLeadDialog() {
             <Label>Имя клиента</Label>
             <Input
               value={form.client_name}
-              onChange={(e) =>
-                setForm({ ...form, client_name: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, client_name: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
