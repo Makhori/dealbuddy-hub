@@ -70,7 +70,7 @@ function AuthPage() {
       toast.error("Не удалось войти: " + error.message);
       return;
     }
-    navigate({ to: "/desk" });
+    window.location.assign("/desk");
   }
 
   return (

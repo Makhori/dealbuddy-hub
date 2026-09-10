@@ -4,7 +4,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmployees, useMe } from "@/hooks/useMe";
-import { money, monthLabel, monthRange, monthStart, payroll } from "@/lib/crm";
+import { money, monthLabel, monthRange, payroll } from "@/lib/crm";
+import { useDefaultPeriod } from "@/hooks/usePeriod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +44,9 @@ function PlansPage() {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const { data: employees = [] } = useEmployees();
-  const [period, setPeriod] = useState(monthStart());
+  const defaultPeriod = useDefaultPeriod();
+  const [customPeriod, setPeriod] = useState<string | null>(null);
+  const period = customPeriod ?? defaultPeriod;
   const { from, to } = monthRange(period);
 
   const { data: plans = [] } = useQuery({

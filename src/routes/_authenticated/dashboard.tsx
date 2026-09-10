@@ -18,9 +18,9 @@ import {
   money,
   monthLabel,
   monthRange,
-  monthStart,
   payroll,
 } from "@/lib/crm";
+import { useDefaultPeriod } from "@/hooks/usePeriod";
 import { Progress } from "@/components/ui/progress";
 import type { Payment } from "./payments";
 import type { Lead } from "./board";
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 function DashboardPage() {
   const { data: me } = useMe();
   const { data: employees = [] } = useEmployees();
-  const period = monthStart();
+  const period = useDefaultPeriod();
   const { from, to } = monthRange(period);
 
   const { data: payments = [] } = useQuery({

@@ -5,7 +5,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEmployees, useMe, type Employee } from "@/hooks/useMe";
-import { money, monthRange, monthStart, payroll } from "@/lib/crm";
+import { money, monthRange, payroll } from "@/lib/crm";
+import { useDefaultPeriod } from "@/hooks/usePeriod";
 import { createEmployeeAccount } from "@/lib/team.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +45,7 @@ export const Route = createFileRoute("/_authenticated/team")({
 function TeamPage() {
   const { data: me } = useMe();
   const { data: employees = [] } = useEmployees();
-  const period = monthStart();
+  const period = useDefaultPeriod();
   const { from, to } = monthRange(period);
 
   const { data: payments = [] } = useQuery({
