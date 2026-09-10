@@ -49,8 +49,8 @@ const DEMO = [
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState(DEMO[0].email);
-  const [password, setPassword] = useState(DEMO[0].password);
+  const [email, setEmail] = useState("vasya@crm.local");
+  const [password, setPassword] = useState("Director2026!");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
