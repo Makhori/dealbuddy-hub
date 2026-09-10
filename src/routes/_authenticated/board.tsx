@@ -76,6 +76,7 @@ function BoardPage() {
   const [search, setSearch] = useState(q);
   const [dragId, setDragId] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [openLead, setOpenLead] = useState<Lead | null>(null);
 
   useEffect(() => setSearch(q), [q]);
 
