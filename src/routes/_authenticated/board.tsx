@@ -76,6 +76,7 @@ function BoardPage() {
   const [search, setSearch] = useState(q);
   const [dragId, setDragId] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [openLead, setOpenLead] = useState<Lead | null>(null);
 
   useEffect(() => setSearch(q), [q]);
 
@@ -223,7 +224,8 @@ function BoardPage() {
                         draggable
                         onDragStart={() => setDragId(lead.id)}
                         onDragEnd={() => setDragId(null)}
-                        className={`surface cursor-grab p-3 active:cursor-grabbing ${
+                        onClick={() => setOpenLead(lead)}
+                        className={`surface cursor-pointer p-3 active:cursor-grabbing ${
                           highlight ? "ring-2 ring-primary" : ""
                         }`}
                       >
@@ -267,7 +269,210 @@ function BoardPage() {
           })}
         </div>
       )}
+
+      <LeadDialog
+        lead={openLead}
+        onClose={() => setOpenLead(null)}
+        employees={employees}
+        isAdmin={!!me?.isAdmin}
+      />
     </div>
+  );
+}
+
+function LeadDialog({
+  lead,
+  onClose,
+  employees,
+  isAdmin,
+}: {
+  lead: Lead | null;
+  onClose: () => void;
+  employees: { id: string; full_name: string }[];
+  isAdmin: boolean;
+}) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState<Lead | null>(lead);
+
+  useEffect(() => setForm(lead), [lead]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!form) return;
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          client_name: form.client_name,
+          phone: form.phone || null,
+          telegram: form.telegram || null,
+          request: form.request || null,
+          tariff: form.tariff || null,
+          amount: form.amount === null ? null : Number(form.amount),
+          net_amount: form.net_amount === null ? null : Number(form.net_amount),
+          payment_method: form.payment_method || null,
+          comment: form.comment || null,
+          next_action: form.next_action || null,
+          status: form.status,
+          manager_id: form.manager_id || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", form.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      toast.success("Заявка обновлена");
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (!form) return null;
+  const set = (patch: Partial<Lead>) => setForm({ ...form, ...patch });
+
+  return (
+    <Dialog open={!!lead} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{form.client_name}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <Label>Имя клиента</Label>
+            <Input
+              value={form.client_name}
+              onChange={(e) => set({ client_name: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Телефон</Label>
+              <Input
+                value={form.phone ?? ""}
+                onChange={(e) => set({ phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Telegram</Label>
+              <Input
+                value={form.telegram ?? ""}
+                onChange={(e) => set({ telegram: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Запрос</Label>
+            <Textarea
+              value={form.request ?? ""}
+              onChange={(e) => set({ request: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Тариф</Label>
+              <Input
+                value={form.tariff ?? ""}
+                onChange={(e) => set({ tariff: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Способ оплаты</Label>
+              <Input
+                value={form.payment_method ?? ""}
+                onChange={(e) => set({ payment_method: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Сумма, ₽</Label>
+              <Input
+                type="number"
+                value={form.amount ?? ""}
+                onChange={(e) =>
+                  set({ amount: e.target.value === "" ? null : Number(e.target.value) })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Чистая прибыль, ₽</Label>
+              <Input
+                type="number"
+                value={form.net_amount ?? ""}
+                onChange={(e) =>
+                  set({
+                    net_amount:
+                      e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Статус</Label>
+              <Select
+                value={form.status}
+                onValueChange={(v) => set({ status: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAD_STATUSES.map((s) => (
+                    <SelectItem key={s.key} value={s.key}>
+                      {s.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {isAdmin && (
+              <div className="space-y-1.5">
+                <Label>Менеджер</Label>
+                <Select
+                  value={form.manager_id ?? ""}
+                  onValueChange={(v) => set({ manager_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Следующее действие</Label>
+            <Input
+              value={form.next_action ?? ""}
+              onChange={(e) => set({ next_action: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Комментарий</Label>
+            <Textarea
+              value={form.comment ?? ""}
+              onChange={(e) => set({ comment: e.target.value })}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
