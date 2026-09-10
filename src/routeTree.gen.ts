@@ -16,6 +16,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDeskRouteImport } from './routes/_authenticated/desk'
 import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
 import { Route as AuthenticatedPlansRouteImport } from './routes/_authenticated/plans'
+import { Route as AuthenticatedTeamRouteImport } from './routes/_authenticated/team'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -51,6 +52,11 @@ const AuthenticatedPlansRoute = AuthenticatedPlansRouteImport.update({
   path: '/plans',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTeamRoute = AuthenticatedTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/desk': typeof AuthenticatedDeskRoute
   '/payments': typeof AuthenticatedPaymentsRoute
   '/plans': typeof AuthenticatedPlansRoute
+  '/team': typeof AuthenticatedTeamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/desk': typeof AuthenticatedDeskRoute
   '/payments': typeof AuthenticatedPaymentsRoute
   '/plans': typeof AuthenticatedPlansRoute
+  '/team': typeof AuthenticatedTeamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -77,12 +85,14 @@ export interface FileRoutesById {
   '/_authenticated/desk': typeof AuthenticatedDeskRoute
   '/_authenticated/payments': typeof AuthenticatedPaymentsRoute
   '/_authenticated/plans': typeof AuthenticatedPlansRoute
+  '/_authenticated/team': typeof AuthenticatedTeamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/board' | '/dashboard' | '/desk' | '/payments' | '/plans'
+  fullPaths:
+    '/' | '/board' | '/dashboard' | '/desk' | '/payments' | '/plans' | '/team'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/board' | '/dashboard' | '/desk' | '/payments' | '/plans'
+  to: '/' | '/board' | '/dashboard' | '/desk' | '/payments' | '/plans' | '/team'
   id:
     | '__root__'
     | '/'
@@ -92,6 +102,7 @@ export interface FileRouteTypes {
     | '/_authenticated/desk'
     | '/_authenticated/payments'
     | '/_authenticated/plans'
+    | '/_authenticated/team'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -150,6 +161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPlansRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/team': {
+      id: '/_authenticated/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof AuthenticatedTeamRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -159,6 +177,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDeskRoute: typeof AuthenticatedDeskRoute
   AuthenticatedPaymentsRoute: typeof AuthenticatedPaymentsRoute
   AuthenticatedPlansRoute: typeof AuthenticatedPlansRoute
+  AuthenticatedTeamRoute: typeof AuthenticatedTeamRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -167,6 +186,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDeskRoute: AuthenticatedDeskRoute,
   AuthenticatedPaymentsRoute: AuthenticatedPaymentsRoute,
   AuthenticatedPlansRoute: AuthenticatedPlansRoute,
+  AuthenticatedTeamRoute: AuthenticatedTeamRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
