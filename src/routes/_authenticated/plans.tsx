@@ -1,15 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useEmployees, useMe } from "@/hooks/useMe";
-import { money, monthLabel, monthRange, payroll } from "@/lib/crm";
-import { useDefaultPeriod } from "@/hooks/usePeriod";
+import { useEmployees, useMe, type Employee } from "@/hooks/useMe";
+import { useTerms } from "@/hooks/useTerms";
+import { money, monthLabel, monthRange, payroll, termsFor } from "@/lib/crm";
+import { useFilters } from "@/components/filters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { Payment } from "./payments";
 
 export const Route = createFileRoute("/_authenticated/plans")({
@@ -19,12 +28,12 @@ export const Route = createFileRoute("/_authenticated/plans")({
       {
         name: "description",
         content:
-          "Настройка планов минимум, целевой и максимум по отделу и каждому менеджеру с расчётом премий и коэффициентов.",
+          "Планы минимум, целевой и максимум по месяцам, условия сотрудников и история изменений окладов и коэффициентов.",
       },
       { property: "og:title", content: "Планы и премии" },
       {
         property: "og:description",
-        content: "План-минимум, целевой и максимум с автоматическим расчётом премии.",
+        content: "Планы по месяцам, премии и история условий сотрудников.",
       },
     ],
   }),
@@ -41,12 +50,10 @@ type Plan = {
 };
 
 function PlansPage() {
-  const qc = useQueryClient();
   const { data: me } = useMe();
   const { data: employees = [] } = useEmployees();
-  const defaultPeriod = useDefaultPeriod();
-  const [customPeriod, setPeriod] = useState<string | null>(null);
-  const period = customPeriod ?? defaultPeriod;
+  const f = useFilters();
+  const period = f.period;
   const { from, to } = monthRange(period);
 
   const { data: plans = [] } = useQuery({
@@ -74,24 +81,175 @@ function PlansPage() {
     },
   });
 
+  const { data: terms = [] } = useTerms(period);
+  const { data: allTerms = [] } = useTerms();
+
+  if (me && !me.isAdmin)
+    return (
+      <p className="text-sm text-muted-foreground">
+        Раздел доступен только руководителю.
+      </p>
+    );
+
+  const factOf = (id: string | null) =>
+    payments
+      .filter((p) => (id ? p.manager_id === id : true))
+      .reduce((a, p) => a + Number(p.net_profit), 0);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <header className="shrink-0">
+        <h1 className="text-xl font-bold">Планы и премии</h1>
+        <p className="text-xs text-muted-foreground">
+          Месяц: {monthLabel(period)} — выбирается в фильтре сверху
+        </p>
+      </header>
+
+      <Tabs
+        defaultValue="plans"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        <TabsList className="shrink-0 self-start">
+          <TabsTrigger value="plans">Планы на месяц</TabsTrigger>
+          <TabsTrigger value="terms">Условия сотрудников</TabsTrigger>
+        </TabsList>
+
+        <TabsContent
+          value="plans"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"
+        >
+          <PlanRow
+            title="Общий план отдела"
+            subtitle="Все менеджеры вместе"
+            period={period}
+            plan={plans.find((p) => !p.employee_id) ?? null}
+            employeeId={null}
+            fact={factOf(null)}
+          />
+          {employees.map((e) => (
+            <PlanRow
+              key={e.id}
+              title={e.full_name}
+              subtitle={e.position_title}
+              period={period}
+              plan={plans.find((p) => p.employee_id === e.id) ?? null}
+              employeeId={e.id}
+              fact={factOf(e.id)}
+            />
+          ))}
+        </TabsContent>
+
+        <TabsContent
+          value="terms"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"
+        >
+          {employees.map((e) => (
+            <TermsRow
+              key={e.id}
+              employee={e}
+              period={period}
+              terms={terms}
+              plan={plans.find((p) => p.employee_id === e.id) ?? null}
+              fact={factOf(e.id)}
+            />
+          ))}
+
+          <section className="surface p-4">
+            <h2 className="text-base font-semibold">История условий</h2>
+            <p className="text-xs text-muted-foreground">
+              Как менялись оклад, ставка и коэффициенты по месяцам
+            </p>
+            <div className="mt-3 max-h-72 overflow-auto">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableRow>
+                    <TableHead>Месяц</TableHead>
+                    <TableHead>Сотрудник</TableHead>
+                    <TableHead className="text-right">Оклад</TableHead>
+                    <TableHead className="text-right">Ставка</TableHead>
+                    <TableHead className="text-right">Коэф. минимум</TableHead>
+                    <TableHead className="text-right">Коэф. цель</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allTerms.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell>{monthLabel(t.period)}</TableCell>
+                      <TableCell>
+                        {employees.find((e) => e.id === t.employee_id)
+                          ?.full_name ?? "—"}
+                      </TableCell>
+                      <TableCell className="num text-right">
+                        {money(t.salary)}
+                      </TableCell>
+                      <TableCell className="num text-right">
+                        {t.base_rate}%
+                      </TableCell>
+                      <TableCell className="num text-right">
+                        ×{t.min_coef}
+                      </TableCell>
+                      <TableCell className="num text-right">
+                        ×{t.target_coef}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function PlanRow({
+  title,
+  subtitle,
+  period,
+  plan,
+  employeeId,
+  fact,
+}: {
+  title: string;
+  subtitle: string;
+  period: string;
+  plan: Plan | null;
+  employeeId: string | null;
+  fact: number;
+}) {
+  const qc = useQueryClient();
+  const [v, setV] = useState({
+    plan_min: String(plan?.plan_min ?? 0),
+    plan_target: String(plan?.plan_target ?? 0),
+    plan_max: String(plan?.plan_max ?? 0),
+  });
+
+  useEffect(() => {
+    setV({
+      plan_min: String(plan?.plan_min ?? 0),
+      plan_target: String(plan?.plan_target ?? 0),
+      plan_max: String(plan?.plan_max ?? 0),
+    });
+  }, [plan, period]);
+
   const save = useMutation({
-    mutationFn: async (p: {
-      employee_id: string | null;
-      plan_min: number;
-      plan_target: number;
-      plan_max: number;
-    }) => {
-      const existing = plans.find((x) =>
-        p.employee_id ? x.employee_id === p.employee_id : !x.employee_id,
-      );
-      if (existing) {
+    mutationFn: async () => {
+      const payload = {
+        plan_min: Number(v.plan_min || 0),
+        plan_target: Number(v.plan_target || 0),
+        plan_max: Number(v.plan_max || 0),
+      };
+      if (plan) {
         const { error } = await supabase
           .from("plans")
-          .update(p)
-          .eq("id", existing.id);
+          .update(payload)
+          .eq("id", plan.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("plans").insert({ ...p, period });
+        const { error } = await supabase
+          .from("plans")
+          .insert({ ...payload, period, employee_id: employeeId });
         if (error) throw error;
       }
     },
@@ -102,178 +260,154 @@ function PlansPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (me && !me.isAdmin)
-    return (
-      <p className="text-sm text-muted-foreground">
-        Раздел доступен только руководителю.
-      </p>
-    );
-
-  const totalFact = payments.reduce((a, p) => a + Number(p.net_profit), 0);
-  const common = plans.find((p) => !p.employee_id) ?? null;
+  const target = Number(v.plan_target || 0);
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Планы и премии</h1>
-          <p className="text-sm text-muted-foreground">
-            Период: {monthLabel(period)}
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="period">Месяц</Label>
+    <section className="surface grid items-end gap-3 p-4 lg:grid-cols-[1.2fr_repeat(3,minmax(0,1fr))_auto]">
+      <div>
+        <h2 className="font-semibold">{title}</h2>
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+        <p className="num mt-1 text-sm font-bold text-success">
+          {money(fact)} факт
+        </p>
+        <Progress
+          className="mt-1.5 h-1.5"
+          value={target ? Math.min((fact / target) * 100, 100) : 0}
+        />
+      </div>
+      {(
+        [
+          ["plan_min", "Минимум"],
+          ["plan_target", "Целевой"],
+          ["plan_max", "Максимум"],
+        ] as const
+      ).map(([key, label]) => (
+        <label key={key} className="space-y-1 text-xs text-muted-foreground">
+          {label}
           <Input
-            id="period"
-            type="month"
-            value={period.slice(0, 7)}
-            onChange={(e) => setPeriod(e.target.value + "-01")}
-            className="w-44"
+            type="number"
+            value={v[key]}
+            onChange={(e) => setV({ ...v, [key]: e.target.value })}
           />
-        </div>
-      </header>
-
-      <PlanEditor
-        title="Общий план отдела"
-        subtitle={`Факт: ${money(totalFact)}`}
-        plan={common}
-        fact={totalFact}
-        onSave={(v) => save.mutate({ employee_id: null, ...v })}
-      />
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        {employees.map((e) => {
-          const plan = plans.find((p) => p.employee_id === e.id) ?? null;
-          const fact = payments
-            .filter((p) => p.manager_id === e.id)
-            .reduce((a, p) => a + Number(p.net_profit), 0);
-          const calc = payroll({
-            salary: Number(e.salary),
-            baseRate: Number(e.base_rate),
-            minCoef: Number(e.min_coef),
-            targetCoef: Number(e.target_coef),
-            planMin: Number(plan?.plan_min ?? 0),
-            planTarget: Number(plan?.plan_target ?? 0),
-            fact,
-          });
-          return (
-            <PlanEditor
-              key={e.id}
-              title={e.full_name}
-              subtitle={`${e.position_title} · ставка ${e.base_rate}% · оклад ${money(e.salary)}`}
-              plan={plan}
-              fact={fact}
-              payrollInfo={calc}
-              onSave={(v) => save.mutate({ employee_id: e.id, ...v })}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PlanEditor({
-  title,
-  subtitle,
-  plan,
-  fact,
-  payrollInfo,
-  onSave,
-}: {
-  title: string;
-  subtitle: string;
-  plan: Plan | null;
-  fact: number;
-  payrollInfo?: ReturnType<typeof payroll>;
-  onSave: (v: { plan_min: number; plan_target: number; plan_max: number }) => void;
-}) {
-  const [v, setV] = useState({
-    plan_min: String(plan?.plan_min ?? 0),
-    plan_target: String(plan?.plan_target ?? 0),
-    plan_max: String(plan?.plan_max ?? 0),
-  });
-  const [dirty, setDirty] = useState(false);
-
-  const current = dirty
-    ? v
-    : {
-        plan_min: String(plan?.plan_min ?? 0),
-        plan_target: String(plan?.plan_target ?? 0),
-        plan_max: String(plan?.plan_max ?? 0),
-      };
-
-  const target = Number(current.plan_target || 0);
-
-  return (
-    <section className="surface space-y-4 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="text-right">
-          <p className="num text-lg font-bold text-success">{money(fact)}</p>
-          <p className="text-xs text-muted-foreground">факт чистыми</p>
-        </div>
-      </div>
-
-      <Progress value={target ? Math.min((fact / target) * 100, 100) : 0} />
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(
-          [
-            ["plan_min", "План-минимум"],
-            ["plan_target", "Целевой план"],
-            ["plan_max", "План-максимум"],
-          ] as const
-        ).map(([key, label]) => (
-          <div key={key} className="space-y-1.5">
-            <Label>{label}</Label>
-            <Input
-              type="number"
-              value={current[key]}
-              onChange={(e) => {
-                setDirty(true);
-                setV({ ...current, [key]: e.target.value });
-              }}
-            />
-          </div>
-        ))}
-      </div>
-
-      {payrollInfo && (
-        <div className="grid gap-2 rounded-lg bg-muted/60 p-3 text-sm sm:grid-cols-4">
-          <Info label="Коэффициент" value={payrollInfo.coefLabel} />
-          <Info label="Премия" value={money(payrollInfo.bonus)} />
-          <Info label="К выплате" value={money(payrollInfo.payout)} />
-          <Info
-            label="До цели"
-            value={payrollInfo.toTarget ? money(payrollInfo.toTarget) : "выполнено"}
-          />
-        </div>
-      )}
-
-      <Button
-        onClick={() =>
-          onSave({
-            plan_min: Number(current.plan_min || 0),
-            plan_target: Number(current.plan_target || 0),
-            plan_max: Number(current.plan_max || 0),
-          })
-        }
-      >
-        Сохранить план
+        </label>
+      ))}
+      <Button onClick={() => save.mutate()} disabled={save.isPending}>
+        Сохранить
       </Button>
     </section>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function TermsRow({
+  employee,
+  period,
+  terms,
+  plan,
+  fact,
+}: {
+  employee: Employee;
+  period: string;
+  terms: { employee_id: string; period: string; salary: number; base_rate: number; min_coef: number; target_coef: number }[];
+  plan: Plan | null;
+  fact: number;
+}) {
+  const qc = useQueryClient();
+  const current = termsFor(employee, terms, period);
+  const [v, setV] = useState({
+    salary: String(current.salary),
+    base_rate: String(current.base_rate),
+    min_coef: String(current.min_coef),
+    target_coef: String(current.target_coef),
+  });
+
+  useEffect(() => {
+    setV({
+      salary: String(current.salary),
+      base_rate: String(current.base_rate),
+      min_coef: String(current.min_coef),
+      target_coef: String(current.target_coef),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, employee.id, terms]);
+
+  const calc = payroll({
+    salary: Number(v.salary || 0),
+    baseRate: Number(v.base_rate || 0),
+    minCoef: Number(v.min_coef || 1),
+    targetCoef: Number(v.target_coef || 1),
+    planMin: Number(plan?.plan_min ?? 0),
+    planTarget: Number(plan?.plan_target ?? 0),
+    fact,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        employee_id: employee.id,
+        period,
+        salary: Number(v.salary || 0),
+        base_rate: Number(v.base_rate || 0),
+        min_coef: Number(v.min_coef || 1),
+        target_coef: Number(v.target_coef || 1),
+      };
+      const { error } = await supabase
+        .from("employee_terms")
+        .upsert(payload, { onConflict: "employee_id,period" });
+      if (error) throw error;
+      const { error: e2 } = await supabase
+        .from("employees")
+        .update({
+          salary: payload.salary,
+          base_rate: payload.base_rate,
+          min_coef: payload.min_coef,
+          target_coef: payload.target_coef,
+        })
+        .eq("id", employee.id);
+      if (e2) throw e2;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee_terms"] });
+      qc.invalidateQueries({ queryKey: ["employees"] });
+      toast.success(`Условия на ${monthLabel(period)} сохранены`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="num font-semibold">{value}</p>
-    </div>
+    <section className="surface grid items-end gap-3 p-4 xl:grid-cols-[1fr_repeat(4,minmax(0,0.8fr))_auto]">
+      <div>
+        <h2 className="font-semibold">{employee.full_name}</h2>
+        <p className="text-xs text-muted-foreground">
+          Факт {money(fact)} · {calc.coefLabel}
+        </p>
+        <p className="num mt-1 text-sm font-bold text-success">
+          премия {money(calc.bonus)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          к выплате {money(calc.payout)}
+        </p>
+      </div>
+      {(
+        [
+          ["salary", "Оклад, ₽"],
+          ["base_rate", "Ставка, %"],
+          ["min_coef", "Коэф. минимум"],
+          ["target_coef", "Коэф. цель"],
+        ] as const
+      ).map(([key, label]) => (
+        <label key={key} className="space-y-1 text-xs text-muted-foreground">
+          {label}
+          <Input
+            type="number"
+            step="0.1"
+            value={v[key]}
+            onChange={(e) => setV({ ...v, [key]: e.target.value })}
+          />
+        </label>
+      ))}
+      <Button onClick={() => save.mutate()} disabled={save.isPending}>
+        Сохранить
+      </Button>
+    </section>
   );
 }
