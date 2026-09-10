@@ -157,7 +157,9 @@ function DeskPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Заявки на сегодня</h2>
             <Button asChild variant="secondary" size="sm">
-              <Link to="/board">Открыть доску</Link>
+              <Link to="/board" search={{ q: "" }}>
+                Открыть доску
+              </Link>
             </Button>
           </div>
           <ul className="mt-3 space-y-2">

@@ -29,7 +29,7 @@ import { Plus, Phone, Send, GripVertical } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/board")({
   validateSearch: (s: Record<string, unknown>) => ({
-    q: typeof s.q === "string" ? s.q : "",
+    q: typeof s["q"] === "string" ? (s["q"] as string) : "",
   }),
   head: () => ({
     meta: [
