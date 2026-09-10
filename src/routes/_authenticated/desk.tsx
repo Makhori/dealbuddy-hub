@@ -7,10 +7,10 @@ import {
   money,
   monthLabel,
   monthRange,
-  monthStart,
   payroll,
   statusMeta,
 } from "@/lib/crm";
+import { useDefaultPeriod } from "@/hooks/usePeriod";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import type { Lead } from "./board";
@@ -37,7 +37,7 @@ export const Route = createFileRoute("/_authenticated/desk")({
 
 function DeskPage() {
   const { data: me } = useMe();
-  const period = monthStart();
+  const period = useDefaultPeriod();
   const { from, to } = monthRange(period);
   const employeeId = me?.employee?.id ?? null;
 
@@ -239,7 +239,9 @@ function MiniPlan({
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="num text-base font-semibold">{money(plan)}</p>
       <p className="mt-1 text-xs">
-        {left > 0 ? (
+        {plan <= 0 ? (
+          <span className="text-muted-foreground">план не задан</span>
+        ) : left > 0 ? (
           <>
             осталось <span className="num font-semibold">{money(left)}</span> до ×
             {coef}
