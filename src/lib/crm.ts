@@ -39,7 +39,7 @@ export const LEAD_STATUSES: {
 ];
 
 export function statusMeta(status: string) {
-  return LEAD_STATUSES.find((s) => s.key === status) ?? LEAD_STATUSES[0];
+  return LEAD_STATUSES.find((s) => s.key === status) ?? LEAD_STATUSES[0]!;
 }
 
 export function money(value: number | null | undefined) {

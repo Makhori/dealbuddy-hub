@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedBoardRouteImport } from './routes/_authenticated/board'
+import { Route as AuthenticatedDeskRouteImport } from './routes/_authenticated/desk'
 import { Route as AuthenticatedPaymentsRouteImport } from './routes/_authenticated/payments'
 
 const IndexRoute = IndexRouteImport.update({
@@ -28,6 +29,11 @@ const AuthenticatedBoardRoute = AuthenticatedBoardRouteImport.update({
   path: '/board',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDeskRoute = AuthenticatedDeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPaymentsRoute = AuthenticatedPaymentsRouteImport.update({
   id: '/payments',
   path: '/payments',
@@ -37,11 +43,13 @@ const AuthenticatedPaymentsRoute = AuthenticatedPaymentsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/board': typeof AuthenticatedBoardRoute
+  '/desk': typeof AuthenticatedDeskRoute
   '/payments': typeof AuthenticatedPaymentsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/board': typeof AuthenticatedBoardRoute
+  '/desk': typeof AuthenticatedDeskRoute
   '/payments': typeof AuthenticatedPaymentsRoute
 }
 export interface FileRoutesById {
@@ -49,18 +57,20 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/_authenticated/board': typeof AuthenticatedBoardRoute
+  '/_authenticated/desk': typeof AuthenticatedDeskRoute
   '/_authenticated/payments': typeof AuthenticatedPaymentsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/board' | '/payments'
+  fullPaths: '/' | '/board' | '/desk' | '/payments'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/board' | '/payments'
+  to: '/' | '/board' | '/desk' | '/payments'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/_authenticated/board'
+    | '/_authenticated/desk'
     | '/_authenticated/payments'
   fileRoutesById: FileRoutesById
 }
@@ -92,6 +102,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBoardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/desk': {
+      id: '/_authenticated/desk'
+      path: '/desk'
+      fullPath: '/desk'
+      preLoaderRoute: typeof AuthenticatedDeskRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/payments': {
       id: '/_authenticated/payments'
       path: '/payments'
@@ -104,11 +121,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedBoardRoute: typeof AuthenticatedBoardRoute
+  AuthenticatedDeskRoute: typeof AuthenticatedDeskRoute
   AuthenticatedPaymentsRoute: typeof AuthenticatedPaymentsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBoardRoute: AuthenticatedBoardRoute,
+  AuthenticatedDeskRoute: AuthenticatedDeskRoute,
   AuthenticatedPaymentsRoute: AuthenticatedPaymentsRoute,
 }
 
