@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -104,7 +103,7 @@ function DashboardPage() {
   const min = Number(common?.plan_min ?? 0);
   const max = Number(common?.plan_max ?? 0);
 
-  const daily = useMemo(() => {
+  const daily = (() => {
     const map = new Map<string, number>();
     monthPayments.forEach((p) => {
       map.set(p.payment_date, (map.get(p.payment_date) ?? 0) + Number(p.net_profit));
@@ -119,7 +118,7 @@ function DashboardPage() {
         cumulative: acc,
       };
     });
-  }, [monthPayments]);
+  })();
 
   const byManager = employees.map((e) => {
     const own = monthPayments.filter((p) => p.manager_id === e.id);
