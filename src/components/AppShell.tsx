@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db as supabase } from "@/lib/db-client";
 import { useMe } from "@/hooks/useMe";
 import { Button } from "@/components/ui/button";
 import { FilterBar, FiltersProvider } from "@/components/filters";

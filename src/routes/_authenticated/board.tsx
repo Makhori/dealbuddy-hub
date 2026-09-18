@@ -2,10 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { db as supabase, syncGoogleSheets } from "@/lib/db-client";
 import { useEmployees, useMe } from "@/hooks/useMe";
-import { LEAD_STATUSES, money, statusMeta, type LeadStatus } from "@/lib/crm";
+import {
+  LEAD_STATUSES,
+  LEAD_TARIFFS,
+  money,
+  monthRange,
+  statusMeta,
+  type LeadStatus,
+} from "@/lib/crm";
 import { useFilters } from "@/components/filters";
+import { LeadChat } from "@/components/lead-chat";
+import { LeadInvoices } from "@/components/lead-invoices";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Phone, Send, GripVertical } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Phone, Send, Bot, GripVertical, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/board")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -65,6 +75,8 @@ export type Lead = {
   comment: string | null;
   next_action: string | null;
   manager_id: string | null;
+  telegram_chat_id: number | null;
+  created_at: string;
 };
 
 function BoardPage() {
@@ -82,30 +94,36 @@ function BoardPage() {
 
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["leads"],
+    refetchInterval: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leads")
         .select("*")
         .order("lead_date", { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data as Lead[];
+      return (data as Lead[]).sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
   });
 
-  const nameOf = (id: string | null) =>
-    employees.find((e) => e.id === id)?.full_name ?? "—";
+  const nameOf = (id: string | null) => employees.find((e) => e.id === id)?.full_name ?? "—";
+
+  const { from, to } = monthRange(f.period);
 
   const filtered = useMemo(
     () =>
-      leads.filter(
-        (l) =>
+      leads.filter((l) => {
+        const date = l.lead_date ?? l.created_at.slice(0, 10);
+        return (
           f.match(l) &&
+          date >= from &&
+          date < to &&
           (search.trim() === "" ||
             (l.client_name + " " + (l.telegram ?? "") + " " + (l.phone ?? ""))
               .toLowerCase()
-              .includes(search.toLowerCase())),
-      ),
-    [leads, f, search],
+              .includes(search.toLowerCase()))
+        );
+      }),
+    [leads, f, from, to, search],
   );
 
   const move = useMutation({
@@ -168,6 +186,7 @@ function BoardPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="w-52"
           />
+          {me?.isAdmin && <SyncSheetsButton />}
           <NewLeadDialog />
         </div>
       </header>
@@ -191,13 +210,10 @@ function BoardPage() {
                   setOver(null);
                   const lead = leads.find((l) => l.id === dragId);
                   setDragId(null);
-                  if (lead && lead.status !== col.key)
-                    move.mutate({ lead, status: col.key });
+                  if (lead && lead.status !== col.key) move.mutate({ lead, status: col.key });
                 }}
                 className={`flex min-h-0 flex-col rounded-xl border transition-colors ${
-                  over === col.key
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-muted/40"
+                  over === col.key ? "border-primary bg-primary/5" : "border-border bg-muted/40"
                 }`}
               >
                 <div className="shrink-0 border-b border-border/60 p-3">
@@ -208,16 +224,13 @@ function BoardPage() {
                     </span>
                   </div>
                   {sum > 0 && (
-                    <p className="num mt-1 text-xs font-semibold text-success">
-                      {money(sum)}
-                    </p>
+                    <p className="num mt-1 text-xs font-semibold text-success">{money(sum)}</p>
                   )}
                 </div>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
                   {items.map((lead) => {
                     const highlight =
-                      q !== "" &&
-                      lead.client_name.toLowerCase() === q.toLowerCase();
+                      q !== "" && lead.client_name.toLowerCase() === q.toLowerCase();
                     return (
                       <article
                         key={lead.id}
@@ -230,9 +243,7 @@ function BoardPage() {
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className="text-sm font-semibold">
-                            {lead.client_name}
-                          </h3>
+                          <h3 className="text-sm font-semibold">{lead.client_name}</h3>
                           <GripVertical className="size-4 shrink-0 text-muted-foreground" />
                         </div>
                         {lead.request && (
@@ -247,9 +258,7 @@ function BoardPage() {
                             </span>
                           )}
                           {!!lead.amount && (
-                            <span className="num font-semibold">
-                              {money(lead.amount)}
-                            </span>
+                            <span className="num font-semibold">{money(lead.amount)}</span>
                           )}
                         </div>
                         <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -257,6 +266,14 @@ function BoardPage() {
                           <span className="flex items-center gap-1.5">
                             {lead.phone && <Phone className="size-3" />}
                             {lead.telegram && <Send className="size-3" />}
+                            {lead.telegram_chat_id && (
+                              <Bot
+                                className="size-3 text-success"
+                                aria-label="Подключён к Telegram-боту"
+                              >
+                                <title>Подключён к Telegram-боту</title>
+                              </Bot>
+                            )}
                             {lead.lead_date}
                           </span>
                         </div>
@@ -332,136 +349,155 @@ function LeadDialog({
 
   return (
     <Dialog open={!!lead} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{form.client_name}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-3">
-          <div className="space-y-1.5">
-            <Label>Имя клиента</Label>
-            <Input
-              value={form.client_name}
-              onChange={(e) => set({ client_name: e.target.value })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-3">
             <div className="space-y-1.5">
-              <Label>Телефон</Label>
+              <Label>Имя клиента</Label>
               <Input
-                value={form.phone ?? ""}
-                onChange={(e) => set({ phone: e.target.value })}
+                value={form.client_name}
+                onChange={(e) => set({ client_name: e.target.value })}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Telegram</Label>
-              <Input
-                value={form.telegram ?? ""}
-                onChange={(e) => set({ telegram: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Запрос</Label>
-            <Textarea
-              value={form.request ?? ""}
-              onChange={(e) => set({ request: e.target.value })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Тариф</Label>
-              <Input
-                value={form.tariff ?? ""}
-                onChange={(e) => set({ tariff: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Способ оплаты</Label>
-              <Input
-                value={form.payment_method ?? ""}
-                onChange={(e) => set({ payment_method: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Сумма, ₽</Label>
-              <Input
-                type="number"
-                value={form.amount ?? ""}
-                onChange={(e) =>
-                  set({ amount: e.target.value === "" ? null : Number(e.target.value) })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Чистая прибыль, ₽</Label>
-              <Input
-                type="number"
-                value={form.net_amount ?? ""}
-                onChange={(e) =>
-                  set({
-                    net_amount:
-                      e.target.value === "" ? null : Number(e.target.value),
-                  })
-                }
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Статус</Label>
-              <Select
-                value={form.status}
-                onValueChange={(v) => set({ status: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LEAD_STATUSES.map((s) => (
-                    <SelectItem key={s.key} value={s.key}>
-                      {s.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {isAdmin && (
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Менеджер</Label>
-                <Select
-                  value={form.manager_id ?? ""}
-                  onValueChange={(v) => set({ manager_id: v })}
-                >
+                <Label>Телефон</Label>
+                <Input value={form.phone ?? ""} onChange={(e) => set({ phone: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Telegram</Label>
+                <Input
+                  value={form.telegram ?? ""}
+                  onChange={(e) => set({ telegram: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Запрос</Label>
+              <Textarea
+                value={form.request ?? ""}
+                onChange={(e) => set({ request: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Тариф</Label>
+                <Select value={form.tariff ?? undefined} onValueChange={(v) => set({ tariff: v })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Выберите" />
+                    <SelectValue placeholder="Выберите тариф" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.full_name}
+                    {form.tariff &&
+                      !LEAD_TARIFFS.includes(form.tariff as (typeof LEAD_TARIFFS)[number]) && (
+                        <SelectItem value={form.tariff}>{form.tariff}</SelectItem>
+                      )}
+                    {LEAD_TARIFFS.map((tariff) => (
+                      <SelectItem key={tariff} value={tariff}>
+                        {tariff}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
+              <div className="space-y-1.5">
+                <Label>Способ оплаты</Label>
+                <Input
+                  value={form.payment_method ?? ""}
+                  onChange={(e) => set({ payment_method: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Сумма, ₽</Label>
+                <Input
+                  type="number"
+                  value={form.amount ?? ""}
+                  onChange={(e) =>
+                    set({ amount: e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Чистая прибыль, ₽</Label>
+                <Input
+                  type="number"
+                  value={form.net_amount ?? ""}
+                  onChange={(e) =>
+                    set({
+                      net_amount: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Статус</Label>
+                <Select value={form.status} onValueChange={(v) => set({ status: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LEAD_STATUSES.map((s) => (
+                      <SelectItem key={s.key} value={s.key}>
+                        {s.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {isAdmin && (
+                <div className="space-y-1.5">
+                  <Label>Менеджер</Label>
+                  <Select
+                    value={form.manager_id ?? ""}
+                    onValueChange={(v) => set({ manager_id: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Выберите" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employees.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Следующее действие</Label>
+              <Input
+                value={form.next_action ?? ""}
+                onChange={(e) => set({ next_action: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Комментарий</Label>
+              <Textarea
+                value={form.comment ?? ""}
+                onChange={(e) => set({ comment: e.target.value })}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Следующее действие</Label>
-            <Input
-              value={form.next_action ?? ""}
-              onChange={(e) => set({ next_action: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Комментарий</Label>
-            <Textarea
-              value={form.comment ?? ""}
-              onChange={(e) => set({ comment: e.target.value })}
-            />
-          </div>
+          <Tabs defaultValue="chat" className="min-w-0">
+            <TabsList>
+              <TabsTrigger value="chat">Переписка</TabsTrigger>
+              <TabsTrigger value="invoices">Счета</TabsTrigger>
+            </TabsList>
+            <TabsContent value="chat">
+              <LeadChat leadId={form.id} telegramChatId={form.telegram_chat_id} />
+            </TabsContent>
+            <TabsContent value="invoices">
+              <LeadInvoices leadId={form.id} telegramChatId={form.telegram_chat_id} />
+            </TabsContent>
+          </Tabs>
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>
@@ -573,10 +609,21 @@ function NewLeadDialog() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Тариф</Label>
-              <Input
-                value={form.tariff}
-                onChange={(e) => setForm({ ...form, tariff: e.target.value })}
-              />
+              <Select
+                value={form.tariff || undefined}
+                onValueChange={(v) => setForm({ ...form, tariff: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите тариф" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAD_TARIFFS.map((tariff) => (
+                    <SelectItem key={tariff} value={tariff}>
+                      {tariff}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Сумма, ₽</Label>
@@ -592,9 +639,7 @@ function NewLeadDialog() {
               <Label>Статус</Label>
               <Select
                 value={form.status}
-                onValueChange={(v) =>
-                  setForm({ ...form, status: v as LeadStatus })
-                }
+                onValueChange={(v) => setForm({ ...form, status: v as LeadStatus })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -631,15 +676,37 @@ function NewLeadDialog() {
           </div>
         </div>
         <DialogFooter>
-          <Button
-            onClick={() => create.mutate()}
-            disabled={!form.client_name || create.isPending}
-          >
+          <Button onClick={() => create.mutate()} disabled={!form.client_name || create.isPending}>
             Сохранить
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SyncSheetsButton() {
+  const qc = useQueryClient();
+  const sync = useMutation({
+    mutationFn: () => syncGoogleSheets(),
+    onSuccess: (r) => {
+      if (!r.ok) {
+        toast.error(`Ошибка синхронизации: ${r.error}`);
+        return;
+      }
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(
+        r.imported > 0 ? `Импортировано новых заявок: ${r.imported}` : "Новых заявок в таблице нет",
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending}>
+      <RefreshCw className={`size-4 ${sync.isPending ? "animate-spin" : ""}`} />
+      Обновить из Google Sheets
+    </Button>
   );
 }
 

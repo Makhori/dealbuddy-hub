@@ -44,9 +44,33 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+async function handleApiRequest(request: Request): Promise<Response | undefined> {
+  const { pathname } = new URL(request.url);
+
+  if (request.method === "POST" && pathname === "/api/telegram/webhook") {
+    const { handleTelegramWebhookRequest } = await import("./lib/sqlite.server");
+    return handleTelegramWebhookRequest(request);
+  }
+  if (request.method === "POST" && pathname === "/api/telegram/send") {
+    const { handleSendLeadMessageRequest } = await import("./lib/sqlite.server");
+    return handleSendLeadMessageRequest(request);
+  }
+  if (request.method === "GET" && pathname === "/api/telegram/file") {
+    const { handleTelegramFileRequest } = await import("./lib/sqlite.server");
+    return handleTelegramFileRequest(request);
+  }
+  if (request.method === "GET" && pathname === "/api/invoices/pdf") {
+    const { handleInvoicePdfRequest } = await import("./lib/sqlite.server");
+    return handleInvoicePdfRequest(request);
+  }
+  return undefined;
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const apiResponse = await handleApiRequest(request);
+      if (apiResponse) return apiResponse;
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);

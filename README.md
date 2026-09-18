@@ -10,45 +10,58 @@ CRM для отдела продаж: Kanban заявок, учёт оплат, 
 - планы минимум / цель / максимум;
 - расчёт премий по персональным условиям;
 - управленческий дашборд;
-- роли руководителя и менеджера на основе Supabase RLS.
+- роли руководителя и менеджера с серверной фильтрацией данных.
 
 ## Стек
 
 - React 19 и TypeScript;
 - TanStack Start, Router и Query;
 - Vite 8 и Tailwind CSS 4;
-- PostgreSQL, Supabase Auth и Row Level Security.
+- встроенный SQLite (`node:sqlite`) и локальные сессии.
 
 ## Локальный запуск
 
-Требуется Node.js 22 или новее.
+Требуется Node.js 22.13 или новее.
 
 ```sh
 npm install
+npm run db:init
 npm run dev
 ```
 
 Приложение будет доступно по адресу <http://127.0.0.1:8080>.
 
-Для подключения к базе создайте `.env`:
+По умолчанию база хранится в `data/pulse-crm.sqlite`. Путь можно изменить через `.env`:
 
 ```dotenv
-SUPABASE_PROJECT_ID=your-project-id
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_PUBLISHABLE_KEY=your-publishable-key
-VITE_SUPABASE_PROJECT_ID=your-project-id
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+SQLITE_DB_PATH=data/pulse-crm.sqlite
 ```
+
+Файл базы и служебные WAL-файлы исключены из Git. Перед переносом проекта их нужно копировать отдельно.
+
+## Подключение Google Sheets
+
+Адрес CSV-выгрузки `gviz` для листа `gid=1863668531` зафиксирован в серверном модуле. OAuth, Google Sheets API, сервисный аккаунт и JSON-ключ не нужны. К каждому запросу добавляется парамет обхода кэша.
+
+В `.env` можно изменить только интервал опроса:
+
+```dotenv
+GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES=1
+```
+
+Ожидаются точные названия: `Отметка времени`, `Выберите продукт`, `Как к вам обращаться`, `Ваш номер телефона для связи`, `Ваш никнейм в Telegram`, `Запрос`. Порядок колонок можно менять.
+
+После перезапуска сервера импорт выполняется сразу, затем через заданный интервал. Руководитель также может запустить импорт кнопкой «Обновить из Google Sheets». Повторные опросы не создают дубли.
 
 ## Команды
 
 ```sh
 npm run dev        # сервер разработки
+npm run db:init    # первое создание и заполнение SQLite
 npm run build      # production-сборка
 npm run preview    # просмотр production-сборки
 npm run lint       # статический анализ
 npm run format     # форматирование
 ```
 
-SQL-миграции находятся в `supabase/migrations`, описание целевой модели данных — в `docs/DATABASE_SCHEMA.md`.
+SQL-схема находится в `database/schema.sql`, подробное описание — в `docs/SQLITE_SCHEMA.md`.

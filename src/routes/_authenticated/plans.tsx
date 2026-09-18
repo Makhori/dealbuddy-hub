@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { db as supabase } from "@/lib/db-client";
 import { useEmployees, useMe, type Employee } from "@/hooks/useMe";
 import { useTerms } from "@/hooks/useTerms";
 import { money, monthLabel, monthRange, payroll, termsFor } from "@/lib/crm";

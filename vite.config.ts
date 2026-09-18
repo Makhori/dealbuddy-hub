@@ -9,6 +9,8 @@ export default defineConfig(({ command }) => ({
   server: {
     host: "127.0.0.1",
     port: 8080,
+    // Разрешаем Host-заголовок туннеля (cloudflared quick tunnel) для приёма вебхуков Telegram в dev-режиме.
+    allowedHosts: [".trycloudflare.com"],
   },
   resolve: {
     tsconfigPaths: true,

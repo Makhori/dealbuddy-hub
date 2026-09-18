@@ -1,12 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { db as supabase } from "@/lib/db-client";
 import { useEmployees, useMe } from "@/hooks/useMe";
 import { useDefaultPeriod } from "@/hooks/usePeriod";
 import { monthLabel, monthStart } from "@/lib/crm";
@@ -56,16 +50,19 @@ export function useFilterOptions() {
     queryFn: async () => {
       const [pays, leads, plans] = await Promise.all([
         supabase.from("payments").select("tariff,payment_method,payment_date"),
-        supabase.from("leads").select("tariff,payment_method"),
+        supabase.from("leads").select("tariff,payment_method,lead_date,created_at"),
         supabase.from("plans").select("period"),
       ]);
       const months = new Set<string>([monthStart()]);
       (pays.data ?? []).forEach((p) => {
-        if (p.payment_date)
-          months.add(String(p.payment_date).slice(0, 8) + "01");
+        if (p.payment_date) months.add(String(p.payment_date).slice(0, 8) + "01");
       });
       (plans.data ?? []).forEach((p) => {
         if (p.period) months.add(String(p.period));
+      });
+      (leads.data ?? []).forEach((l: { lead_date?: string | null; created_at?: string }) => {
+        const date = l.lead_date ?? l.created_at;
+        if (date) months.add(String(date).slice(0, 8) + "01");
       });
       const tariffs = new Set<string>();
       const methods = new Set<string>();
@@ -94,8 +91,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const [method, setMethod] = useState("all");
 
   const value = useMemo<FiltersValue>(() => {
-    const matchManager = (row: Filterable) =>
-      manager === "all" || row.manager_id === manager;
+    const matchManager = (row: Filterable) => manager === "all" || row.manager_id === manager;
     return {
       period: period ?? defaultPeriod,
       setPeriod,

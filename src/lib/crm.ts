@@ -38,6 +38,13 @@ export const LEAD_STATUSES: {
   },
 ];
 
+export const LEAD_TARIFFS = [
+  "Обучение с куратором",
+  "Самостоятельное обучение",
+  "Обучение с VIP-сопровождением от автора курса",
+  "Часовая консультация",
+] as const;
+
 export function statusMeta(status: string) {
   return LEAD_STATUSES.find((s) => s.key === status) ?? LEAD_STATUSES[0]!;
 }
